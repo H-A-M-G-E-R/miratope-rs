@@ -785,7 +785,7 @@ pub fn show_top_panel(
                     if let Some(p) = query.iter_mut().next() {
                         let mut vertices_thing = (Vertices(vec![]), vec![]);
                         if let GroupEnum2::FromSlot(slot) = faceting_settings.group {
-                            vertices_thing = Vertices(p.vertices.clone()).copy_by_symmetry(slot.to_poly(&mut memory, &p).unwrap().clone().get_symmetry_group().unwrap().0);
+                            vertices_thing = Vertices(p.vertices.clone()).copy_by_symmetry_with_map(slot.to_poly(&mut memory, &p).unwrap().clone().get_symmetry_group().unwrap().0);
                         }
                         let facetings = p.clone().faceting(
                             match faceting_settings.group {

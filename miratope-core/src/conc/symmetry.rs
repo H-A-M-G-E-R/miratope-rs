@@ -195,8 +195,18 @@ impl Concrete {
 pub struct Vertices(pub Vec<Point<f64>>);
 
 impl Vertices {
+    /// Uses the provided symmetry group on the vertices.
+    pub fn copy_by_symmetry(&self, group: Group<vec::IntoIter<Matrix<f64>>>) -> Self {
+        self.copy_by_symmetry_with(group, false).0
+    }
+
     /// Uses the provided symmetry group on the vertices, also outputs the new vertex map.
-    pub fn copy_by_symmetry(&self, group: Group<vec::IntoIter<Matrix<f64>>>) -> (Self, Vec<Vec<usize>>) {
+    pub fn copy_by_symmetry_with_map(&self, group: Group<vec::IntoIter<Matrix<f64>>>) -> (Self, Vec<Vec<usize>>) {
+        self.copy_by_symmetry_with(group, true)
+    }
+
+    /// Uses the provided symmetry group on the vertices, also optionally outputs the new vertex map.
+    fn copy_by_symmetry_with(&self, group: Group<vec::IntoIter<Matrix<f64>>>, map: bool) -> (Self, Vec<Vec<usize>>) {
         let mut vertices = BTreeMap::<PointOrd<f64>, usize>::new();
         let mut vertices_vec = Vec::new();
         let mut c = 0;
@@ -216,20 +226,22 @@ impl Vertices {
 
         let mut vertex_map: Vec<Vec<usize>> = Vec::new();
 
-        for isometry in group {
-            let mut vertex_map_row = Vec::<usize>::new();
-            for vertex in &vertices_vec {
-                let new_vertex = PointOrd::new(isometry.clone() * vertex.matrix());
-                match vertices.get(&new_vertex) {
-                    Some(idx) => {
-                        vertex_map_row.push(*idx);
-                    }
-                    None => {
-                        unreachable!();
+        if map {
+            for isometry in group {
+                let mut vertex_map_row = Vec::<usize>::new();
+                for vertex in &vertices_vec {
+                    let new_vertex = PointOrd::new(isometry.clone() * vertex.matrix());
+                    match vertices.get(&new_vertex) {
+                        Some(idx) => {
+                            vertex_map_row.push(*idx);
+                        }
+                        None => {
+                            unreachable!();
+                        }
                     }
                 }
+                vertex_map.push(vertex_map_row);
             }
-            vertex_map.push(vertex_map_row);
         }
         
         (

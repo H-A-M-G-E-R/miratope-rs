@@ -7,8 +7,11 @@ pub mod symmetry;
 
 use std::{
     collections::{HashMap, HashSet, BTreeMap, BTreeSet},
-    ops::{Index, IndexMut}, iter,
+    ops::{Index, IndexMut},
+    iter::{self, FromIterator},
 };
+
+use self::symmetry::Vertices;
 
 use super::{
     abs::{
@@ -19,8 +22,10 @@ use super::{
 };
 use crate::{
     abs::{AbstractBuilder, Element, ElementMap, Subelements, Superelements, Ranks},
+    cox::cd::Cd,
     float::Float,
     geometry::*,
+    group::{Group, GenIter}
 };
 use approx::abs_diff_eq;
 use itertools::Itertools;
@@ -1134,6 +1139,9 @@ pub trait ConcretePolytope: Polytope {
     
     /// Compounds coplanar facets
     fn fuse_facets(&self) -> Self;
+
+    /// Creates a polytope from a given [Coxeter diagram](https://polytope.miraheze.org/wiki/Coxeter_diagram).
+    fn from_cox(diagram: &str) -> Self;
     
 }
 
@@ -1553,6 +1561,131 @@ impl ConcretePolytope for Concrete {
         
         builder.push_max();
         unsafe { Self::new(self.vertices.clone(),builder.build()) }
+    }
+
+    /// Creates a polytope from a given [Coxeter diagram](https://polytope.miraheze.org/wiki/Coxeter_diagram).
+    fn from_cox(diagram: &str) -> Self {
+        let cd = Cd::parse(diagram).unwrap();
+        let dim = cd.dim();
+        let group = Group::parse(diagram).unwrap().unwrap().cache();
+
+        // Generates vertices.
+        let vertices = Vertices(vec![cd.generator().unwrap()]).copy_by_symmetry(group.clone()).0;
+        let vertices_ord: BTreeMap<PointOrd<f64>, usize> = BTreeMap::from_iter(vertices.iter().map(|v| PointOrd::new(v.clone())).zip(0..));
+
+        // (nodes selected, (verts of els of this type, idx of first el of this type))
+        let mut el_orbits: HashMap<Vec<usize>, (BTreeSet<Vec<usize>>, usize)> = HashMap::new();
+        el_orbits.insert(vec![], ((0..vertices.len()).map(|x| vec![x]).collect(), 0));
+
+        // Builds a reflection matrix from a vector.
+        let refl_mat = |n: VectorSlice<'_, f64>| {
+            let nn = n.norm_squared();
+            let mut mat = Matrix::identity(dim, dim);
+
+            // Reflects every basis vector, builds a matrix from all of their images.
+            for mut e in mat.column_iter_mut() {
+                e -= n * (2.0 * e.dot(&n) / nn);
+            }
+
+            mat
+        };
+
+        let normals = cd.cox().normals().unwrap();
+
+        let mut builder = AbstractBuilder::new();
+        builder.push_min();
+        builder.push_vertices(vertices.len());
+
+        for d in 1..dim {
+            let mut used_mirrors: Vec<usize> = (0..d).collect();
+            let mut el_idx: usize = 0;
+
+            builder.push_empty();
+            'a: loop {
+                // generates orbit
+                let mut orbit = (BTreeSet::new(), el_idx);
+
+                let gen_iter = GenIter::new(
+                    dim,
+                    normals.column_iter().enumerate().filter(|x| used_mirrors.contains(&x.0)).map(|x| x.1).map(refl_mat).collect()
+                );
+                let subgroup = unsafe { Group::new(dim, gen_iter.collect::<Vec<_>>().into_iter()) };
+                let el_verts = Vertices(vec![cd.generator().unwrap()]).copy_by_symmetry(subgroup).0;
+                if Subspace::from_points(el_verts.iter()).rank() == d {
+                    let mut orbit_els: BTreeSet<Vec<usize>> = BTreeSet::new();
+                    for isometry in group.clone() {
+                        let mut new_vertices: Vec<usize> = Vec::with_capacity(el_verts.len());
+                        for vert in &el_verts {
+                            if let Some(idx) = vertices_ord.get(&PointOrd::new(&isometry * vert)) {
+                                new_vertices.push(*idx);
+                            }
+                        }
+                        new_vertices.sort_unstable();
+                        if orbit_els.insert(new_vertices) {
+                            el_idx += 1;
+                        }
+                    }
+                    orbit.0 = orbit_els;
+
+                    el_orbits.insert(used_mirrors.clone(), orbit.clone());
+
+                    // connect to subelements
+                    let mut all_sub_mirrors = Vec::new();
+                    for i in 0..d {
+                        let mut sub_mirrors = used_mirrors.clone();
+                        sub_mirrors.remove(i);
+                        all_sub_mirrors.push(sub_mirrors);
+                    }
+                    for el in orbit.0 {
+                        let mut subs: Vec<usize> = Vec::new();
+                        for sub_mirrors in &all_sub_mirrors {
+                            if let Some(s) = el_orbits.get(sub_mirrors) {
+                                for (j, subel) in s.0.iter().enumerate() {
+                                    // check if the subelement is contained within the element
+                                    let mut a: usize = 0;
+                                    let mut b: usize = 0;
+                                    while a < el.len() {
+                                        if el[a] < subel[b] {
+                                            a += 1;
+                                        } else if el[a] > subel[b] {
+                                            break;
+                                        } else {
+                                            a += 1;
+                                            b += 1;
+                                            if b == subel.len() {
+                                                subs.push(j+s.1);
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        builder.push_subs(Subelements::from(subs));
+                    }
+                }
+
+                // next type
+                let mut i = used_mirrors.len();
+                loop {
+                    i -= 1;
+                    if used_mirrors[i] < dim-used_mirrors.len()+i {
+                        break
+                    }
+                    if i == 0 {
+                        break 'a;
+                    }
+                }
+                let mut j = used_mirrors[i];
+                for k in i..used_mirrors.len() {
+                    j += 1;
+                    used_mirrors[k] = j;
+                }
+            }
+        }
+
+        builder.push_max();
+        unsafe { Self::new(vertices,builder.build()) }
     }
 }
 

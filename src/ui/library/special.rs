@@ -17,7 +17,7 @@ use super::ShowResult;
 /// stored on screen. When the user clicks on the button to load them, they're
 /// sent together with their values as a [`ShowResult`] to the [`show_library`]
 /// system, which then actually loads the polytope.
-#[derive(Clone, Copy, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub enum SpecialLibrary {
     /// A regular polygon.
     Polygon(usize, usize),
@@ -42,6 +42,9 @@ pub enum SpecialLibrary {
 
     /// An orthoplex.
     Orthoplex(isize),
+
+    /// A polytope from a Coxeter diagram.
+    FromCoxeter(String)
 }
 
 impl SpecialLibrary {
@@ -56,6 +59,7 @@ impl SpecialLibrary {
             Self::Simplex(_) => "Simplex",
             Self::Hypercube(_) => "Hypercube",
             Self::Orthoplex(_) => "Orthoplex",
+            Self::FromCoxeter(_) => "From Coxeter diagram"
         }
     }
 
@@ -87,7 +91,7 @@ impl SpecialLibrary {
                 });
 
                 if clicked {
-                    ShowResult::Special(*self)
+                    ShowResult::Special(self.clone())
                 } else {
                     ShowResult::None
                 }
@@ -115,7 +119,7 @@ impl SpecialLibrary {
                 });
 
                 if clicked.inner {
-                    ShowResult::Special(*self)
+                    ShowResult::Special(self.clone())
                 } else {
                     ShowResult::None
                 }
@@ -156,7 +160,7 @@ impl SpecialLibrary {
                 });
 
                 if clicked.inner {
-                    ShowResult::Special(*self)
+                    ShowResult::Special(self.clone())
                 } else {
                     ShowResult::None
                 }
@@ -174,7 +178,24 @@ impl SpecialLibrary {
                 });
 
                 if clicked.inner {
-                    ShowResult::Special(*self)
+                    ShowResult::Special(self.clone())
+                } else {
+                    ShowResult::None
+                }
+            }
+
+            Self::FromCoxeter(diagram) => {
+                let clicked = ui.horizontal(|ui| {
+                    let clicked = ui.button(text).clicked();
+
+                    ui.label("Coxeter diagram:");
+                    ui.add(egui::TextEdit::singleline(diagram));
+
+                    clicked
+                });
+
+                if clicked.inner {
+                    ShowResult::Special(self.clone())
                 } else {
                     ShowResult::None
                 }
@@ -184,7 +205,7 @@ impl SpecialLibrary {
 
     /// Loads the given special polytope from the library.
     pub fn load(&self) -> (Concrete, String) {
-        match *self {
+        match self.clone() {
             // Loads a regular star polygon.
             Self::Polygon(n, d) => (
                 Concrete::star_polygon_with_edge(n, d, 1.0),
@@ -264,6 +285,11 @@ impl SpecialLibrary {
                 Concrete::orthoplex((rank + 1) as usize),
                 format!("{}-orthoplex", rank)
             ),
+
+            Self::FromCoxeter(diagram) => (
+                Concrete::from_cox(&diagram),
+                diagram
+            )
         }
     }
 }
